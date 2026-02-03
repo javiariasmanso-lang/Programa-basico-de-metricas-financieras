@@ -6,16 +6,16 @@ def calcular_ratios():
     ingresos = float(input("Ingresos: "))
     ebitda = float(input("EBITDA: "))
     fcf = float(input("FCF: "))
-    deuda_neta = float(input("Deuda neta: "))
+    deuda = float(input("Deuda: "))
     precio_accion = float(input("Precio de la acción: "))
-    numero_acciones = float(input("Número de acciones: "))
     patrimonio_neto = float(input("Patrimonio neto: "))
     activos_totales = float(input("Activos totales: "))
     beneficio_neto = float(input("Beneficio neto: "))
+    numero_acciones = float(input("Número de acciones: "))
 
     # Cálculo de capitalización y valor de empresa (EV)
     capitalizacion = precio_accion * numero_acciones
-    ev = capitalizacion + deuda_neta
+    ev = capitalizacion + deuda
 
     print("\nResultados de ratios:")
 
@@ -56,7 +56,7 @@ def calcular_ratios():
         print(f"ROA: {roa:.2f}")
 
     if ingresos == 0:
-        print("No se puede calcular margen EBITDA: divisor 0")
+        print("No se puede calcular Margen EBITDA: divisor 0")
     else:
         margen_ebitda = ebitda / ingresos
         print(f"Margen EBITDA: {margen_ebitda:.2f}")
@@ -65,26 +65,26 @@ def calcular_ratios():
 def calcular_dcf():
     """Calcula el valor teórico por acción con un modelo DCF perpetuo."""
     fcf_actual = float(input("FCF actual: "))
-    g = float(input("g (crecimiento perpetuo): "))
+    g = float(input("g: "))
     wacc = float(input("WACC: "))
-    deuda_neta = float(input("Deuda neta: "))
-    numero_acciones = float(input("Número de acciones: "))
+    deuda = float(input("Deuda: "))
+    numero_acciones = float(input("Nº de acciones: "))
 
     print("\nResultados del DCF:")
 
     if wacc == g:
-        print("No se puede calcular el valor empresa: WACC es igual a g")
+        print("No se puede calcular Valor empresa: WACC es igual a g")
         return
 
     if wacc - g == 0:
-        print("No se puede calcular el valor empresa: divisor 0")
+        print("No se puede calcular Valor empresa: divisor 0")
         return
 
     valor_empresa = fcf_actual * (1 + g) / (wacc - g)
-    valor_equity = valor_empresa - deuda_neta
+    valor_equity = valor_empresa - deuda
 
     if numero_acciones == 0:
-        print("No se puede calcular el precio teórico: divisor 0")
+        print("No se puede calcular Precio teórico por acción: divisor 0")
         return
 
     precio_teorico = valor_equity / numero_acciones
