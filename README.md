@@ -7,3 +7,5 @@ Programa basico basado en una serie de inputs con datos financieros de una empre
 ```bash
 python main.py
 ```
+
+El script solicitará datos financieros, incluyendo caja disponible y escenarios de DCF con g y WACC expresados en porcentajes.
