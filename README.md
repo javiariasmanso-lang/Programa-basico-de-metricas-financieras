@@ -1,11 +1,22 @@
 # Programa-basico-de-metricas-financieras
 
-Programa basico basado en una serie de inputs con datos financieros de una empresa, el programa devuelve una serie de métricas financieras de manera automatica.
+Mini app de análisis de inversión con:
+- ratios financieros
+- DCF perpetuo (control)
+- DCF por proyección a 5 años + valor terminal
+- investment score final
 
-## Uso
+## Estructura
+
+- `analysis.py`: lógica financiera (fórmulas, reglas y validaciones)
+- `app.py`: interfaz web con Streamlit
+
+## Uso (MVP local)
 
 ```bash
-python main.py
+streamlit run app.py
 ```
 
-El script solicitará datos financieros, incluyendo caja disponible y escenarios de DCF con g y WACC expresados en porcentajes.
+## Nota
+
+Se mantiene `main.py` como versión CLI previa, pero la interfaz recomendada para el MVP es Streamlit.
