@@ -179,7 +179,7 @@ def calcular_ratios():
     return {"precio": precio_accion, "veredicto": veredicto}
 
 
-def calcular_dcf(precio_mercado, veredicto_preliminar):
+def calcular_dcf_perpetuidad(precio_mercado, veredicto_preliminar):
     """Calcula el valor teórico por acción con un modelo DCF perpetuo."""
     fcf_actual = float(input("FCF actual: "))
     deuda = float(input("Deuda: "))
@@ -226,7 +226,7 @@ def calcular_dcf(precio_mercado, veredicto_preliminar):
 
     if precio_base is not None and precio_mercado > 0:
         diferencia_pct = (precio_mercado - precio_base) / precio_base
-        print("\nClasificación según precio de mercado:")
+        print("\nClasificación según precio de mercado (DCF perpetuo base):")
         if diferencia_pct < -0.20:
             print(
                 "Infravalorada: el precio de mercado está >20% por debajo del DCF base, "
@@ -256,7 +256,108 @@ def calcular_dcf(precio_mercado, veredicto_preliminar):
         else:
             print("El DCF base es coherente con el veredicto preliminar.")
 
+    return precio_base
+
+def calcular_dcf_proyeccion(precio_mercado):
+    """Calcula un DCF con proyección explícita a 5 años y valor terminal."""
+    fcf_actual = float(input("FCF actual (FCF0): "))
+    crecimientos = []
+    for i in range(1, 6):
+        crecimientos.append(float(input(f"g{i} (%): ")))
+    wacc_pct = float(input("WACC (%): "))
+    g_terminal_pct = float(input("g terminal (%): "))
+    deuda = float(input("Deuda total: "))
+    caja = float(input("Caja disponible: "))
+    numero_acciones = float(input("Nº de acciones: "))
+
+    if fcf_actual <= 0:
+        print("Advertencia: FCF0 ≤ 0, la proyección puede no ser fiable.")
+    if any(g > 30 for g in crecimientos):
+        print("Advertencia: algún crecimiento gᵗ es extremadamente alto (>30%).")
+
+    wacc = wacc_pct / 100
+    g_terminal = g_terminal_pct / 100
+
+    if g_terminal >= wacc:
+        print("Error crítico: g terminal ≥ WACC. Revisa los supuestos.")
+        return None
+    if wacc <= 0:
+        print("Error crítico: WACC <= 0. Revisa los supuestos.")
+        return None
+
+    print("\nProyección de FCF y valores presentes:")
+    fcf = fcf_actual
+    vp_fcfs = []
+    for i, g in enumerate(crecimientos, start=1):
+        fcf *= (1 + g / 100)
+        vp = fcf / ((1 + wacc) ** i)
+        vp_fcfs.append(vp)
+        print(f"Año {i} - FCF: {fcf:.2f} | VP: {vp:.2f}")
+
+    valor_terminal = (fcf * (1 + g_terminal)) / (wacc - g_terminal)
+    vp_valor_terminal = valor_terminal / ((1 + wacc) ** 5)
+    ev = sum(vp_fcfs) + vp_valor_terminal
+
+    deuda_neta = deuda - caja
+    equity = ev - deuda_neta
+    if numero_acciones == 0:
+        print("No se puede calcular Precio teórico por acción: divisor 0.")
+        return None
+    precio_teorico = equity / numero_acciones
+
+    peso_terminal = vp_valor_terminal / ev if ev != 0 else 0
+    if peso_terminal > 0.70:
+        print("Advertencia: el valor terminal representa >70% del EV total.")
+
+    print(f"Valor terminal: {valor_terminal:.2f}")
+    print(f"VP del valor terminal: {vp_valor_terminal:.2f}")
+    print(f"Peso del valor terminal en EV: {peso_terminal:.2%}")
+    print(f"Valor empresa total (EV): {ev:.2f}")
+    print(f"Valor del equity: {equity:.2f}")
+    print(f"Precio teórico por acción: {precio_teorico:.2f}")
+
+    if precio_mercado > 0:
+        diferencia_pct = (precio_mercado - precio_teorico) / precio_teorico
+        print("\nClasificación según precio de mercado (DCF 5 años):")
+        if diferencia_pct < -0.20:
+            print(
+                "Infravalorada: el precio de mercado está >20% por debajo del DCF a 5 años, "
+                "lo que indica potencial si el crecimiento se materializa."
+            )
+        elif diferencia_pct <= 0.20:
+            print(
+                "Precio razonable: el mercado está dentro de ±20% del DCF a 5 años, "
+                "lo que sugiere valoración coherente con la fase de negocio."
+            )
+        else:
+            print(
+                "Sobrevalorada: el precio de mercado está >20% por encima del DCF a 5 años, "
+                "lo que implica expectativas de crecimiento exigentes."
+            )
+
+    return precio_teorico
+
 
 if __name__ == "__main__":
     resultado = calcular_ratios()
-    calcular_dcf(resultado["precio"], resultado["veredicto"])
+    precio_perpetuo = calcular_dcf_perpetuidad(resultado["precio"], resultado["veredicto"])
+    print(
+        "\nDCF por proyección explícita (5 años + valor terminal): "
+        "útil para empresas growth o en transición."
+    )
+    precio_proyeccion = calcular_dcf_proyeccion(resultado["precio"])
+
+    if precio_perpetuo is not None and precio_proyeccion is not None:
+        print("\nComparación entre modelos DCF:")
+        if precio_proyeccion < precio_perpetuo:
+            print(
+                "El DCF por proyección arroja un valor inferior al perpetuo debido a "
+                "una desaceleración prevista del crecimiento y/o mayor riesgo en el corto plazo."
+            )
+        elif precio_proyeccion > precio_perpetuo:
+            print(
+                "El DCF por proyección arroja un valor superior al perpetuo, lo que refleja "
+                "una fase de crecimiento más intensa antes de la madurez."
+            )
+        else:
+            print("Ambos DCF son coherentes, sugiriendo supuestos de crecimiento similares.")
