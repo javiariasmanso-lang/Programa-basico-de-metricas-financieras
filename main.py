@@ -1,31 +1,92 @@
-"""Programa básico de métricas financieras."""
+"""Programa de análisis financiero con ratios y DCF (perpetuidad + proyección)."""
 
 
-def calcular_ratios():
-    """Solicita datos financieros y calcula ratios básicos."""
-    tipo_empresa = input("Tipo de empresa (growth/madura/defensiva/cíclica): ").strip().lower()
-    ingresos = float(input("Ingresos: "))
-    ebitda = float(input("EBITDA: "))
-    fcf = float(input("FCF: "))
-    deuda = float(input("Deuda: "))
-    caja = float(input("Caja disponible: "))
-    precio_accion = float(input("Precio de la acción: "))
-    patrimonio_neto = float(input("Patrimonio neto: "))
-    activos_totales = float(input("Activos totales: "))
-    beneficio_neto = float(input("Beneficio neto: "))
-    numero_acciones = float(input("Número de acciones: "))
+def calcular_wacc_automatico(tipo_empresa, deuda_neta, ebitda):
+    """Estima el WACC con una base por tipo de empresa y ajuste por apalancamiento."""
+    wacc_base_tipo = {
+        "growth": 0.10,
+        "madura": 0.08,
+        "defensiva": 0.07,
+        "cíclica": 0.09,
+    }
 
-    # Cálculo de capitalización, deuda neta y valor de empresa (EV)
+    if tipo_empresa not in wacc_base_tipo:
+        print("Tipo de empresa no reconocido para WACC, se asume 'madura'.")
+        tipo_empresa = "madura"
+
+    wacc = wacc_base_tipo[tipo_empresa]
+    justificacion = [f"WACC base para {tipo_empresa}: {wacc * 100:.2f}%"]
+
+    apalancamiento = None
+    if ebitda != 0:
+        apalancamiento = deuda_neta / ebitda
+        if apalancamiento > 4:
+            wacc += 0.02
+            justificacion.append("WACC ajustado al alza (+2%) por apalancamiento muy elevado (Deuda neta/EBITDA > 4).")
+        elif apalancamiento > 3:
+            wacc += 0.01
+            justificacion.append("WACC ajustado al alza (+1%) por apalancamiento elevado (Deuda neta/EBITDA > 3).")
+    else:
+        justificacion.append("No se puede calcular Deuda neta/EBITDA por EBITDA=0; no se aplica ajuste por apalancamiento.")
+
+    return wacc, apalancamiento, justificacion, tipo_empresa
+
+
+def construir_crecimientos_decrecientes(g_inicial_pct, g_terminal_pct):
+    """Genera g1..g5 linealmente decrecientes desde g_inicial hasta g_terminal."""
+    paso = (g_inicial_pct - g_terminal_pct) / 5
+    crecimientos = []
+    for t in range(1, 6):
+        g_t = g_inicial_pct - t * paso
+        crecimientos.append(g_t)
+    return crecimientos
+
+
+def recopilar_datos():
+    """Solicita inputs una sola vez y los guarda en un diccionario compartido."""
+    datos = {}
+    datos["tipo_empresa"] = input("Tipo de empresa (growth/madura/defensiva/cíclica): ").strip().lower()
+    datos["ingresos"] = float(input("Ingresos: "))
+    datos["ebitda"] = float(input("EBITDA: "))
+    datos["fcf"] = float(input("FCF actual: "))
+    datos["deuda"] = float(input("Deuda total: "))
+    datos["caja"] = float(input("Caja disponible: "))
+    datos["precio_accion"] = float(input("Precio de la acción: "))
+    datos["patrimonio_neto"] = float(input("Patrimonio neto: "))
+    datos["activos_totales"] = float(input("Activos totales: "))
+    datos["beneficio_neto"] = float(input("Beneficio neto: "))
+    datos["numero_acciones"] = float(input("Número de acciones: "))
+
+    # Inputs para DCF: crecimiento (sin pedir WACC manual)
+    print("\nSupuestos de crecimiento para DCF perpetuo (escenarios):")
+    datos["g_conservador_pct"] = float(input("g conservador (%): "))
+    datos["g_base_pct"] = float(input("g base (%): "))
+    datos["g_optimista_pct"] = float(input("g optimista (%): "))
+
+    print("\nSupuestos para DCF por proyección (5 años + terminal):")
+    datos["g_inicial_pct"] = float(input("Crecimiento inicial (%): "))
+    datos["g_terminal_pct"] = float(input("Crecimiento terminal (%): "))
+
+    return datos
+
+
+def calcular_ratios(datos):
+    """Calcula ratios financieros, interpreta y genera veredicto preliminar."""
+    ingresos = datos["ingresos"]
+    ebitda = datos["ebitda"]
+    fcf = datos["fcf"]
+    deuda_neta = datos["deuda"] - datos["caja"]
+    precio_accion = datos["precio_accion"]
+    patrimonio_neto = datos["patrimonio_neto"]
+    activos_totales = datos["activos_totales"]
+    beneficio_neto = datos["beneficio_neto"]
+    numero_acciones = datos["numero_acciones"]
+
     capitalizacion = precio_accion * numero_acciones
-    deuda_neta = deuda - caja
     ev = capitalizacion + deuda_neta
 
     print("\nResultados de ratios:")
-    per = None
-    ev_ebitda = None
-    ev_fcf = None
-    roe = None
-    margen_ebitda = None
+    per = psr = ev_ebitda = ev_fcf = roe = roa = margen_ebitda = None
 
     if beneficio_neto == 0:
         print("No se puede calcular PER: divisor 0")
@@ -75,12 +136,13 @@ def calcular_ratios():
         "defensiva": {"per_razonable": 18, "ev_ebitda_razonable": 10},
         "cíclica": {"per_razonable": 22, "ev_ebitda_razonable": 14},
     }
-    if tipo_empresa not in criterios:
+    tipo = datos["tipo_empresa"] if datos["tipo_empresa"] in criterios else "madura"
+    if tipo != datos["tipo_empresa"]:
         print("Tipo de empresa no reconocido, se asume 'madura'.")
-        tipo_empresa = "madura"
+    datos["tipo_empresa"] = tipo
 
-    per_razonable = criterios[tipo_empresa]["per_razonable"]
-    ev_ebitda_razonable = criterios[tipo_empresa]["ev_ebitda_razonable"]
+    per_raz = criterios[tipo]["per_razonable"]
+    ev_ebitda_raz = criterios[tipo]["ev_ebitda_razonable"]
 
     rentabilidad = []
     valoracion = []
@@ -88,87 +150,83 @@ def calcular_ratios():
     calidad_cash_flow = []
 
     print("\nInterpretación:")
-    print(
-        f"Nota: los criterios de PER y EV/EBITDA cambian según el perfil '{tipo_empresa}'."
-    )
+    print(f"Nota: los criterios de PER y EV/EBITDA cambian según el perfil '{tipo}'.")
+
     if per is not None:
         if per < 15:
-            valoracion.append("PER bajo, sugiere valoración contenida.")
-        elif per <= per_razonable:
-            valoracion.append(
-                f"PER razonable para el perfil (≤{per_razonable})."
-            )
+            valoracion.append("PER bajo (<15), sugiere valoración contenida.")
+        elif per <= per_raz:
+            valoracion.append(f"PER razonable para el perfil (≤{per_raz}).")
         else:
-            valoracion.append(
-                f"PER exigente para el perfil (>{per_razonable})."
-            )
+            valoracion.append(f"PER exigente para el perfil (>{per_raz}).")
+
     if ev_ebitda is not None:
         if ev_ebitda < 8:
-            valoracion.append("EV/EBITDA bajo, valoración atractiva.")
-        elif ev_ebitda <= ev_ebitda_razonable:
-            valoracion.append(
-                f"EV/EBITDA razonable para el perfil (≤{ev_ebitda_razonable})."
-            )
+            valoracion.append("EV/EBITDA bajo (<8), valoración atractiva.")
+        elif ev_ebitda <= ev_ebitda_raz:
+            valoracion.append(f"EV/EBITDA razonable para el perfil (≤{ev_ebitda_raz}).")
         else:
-            valoracion.append(
-                f"EV/EBITDA elevado para el perfil (>{ev_ebitda_razonable})."
-            )
+            valoracion.append(f"EV/EBITDA elevado para el perfil (>{ev_ebitda_raz}).")
+
     if ev_fcf is not None:
         if ev_fcf < 15:
-            calidad_cash_flow.append("EV/FCF atractivo, buena generación de caja.")
+            calidad_cash_flow.append("EV/FCF atractivo (<15), buena generación de caja.")
         elif ev_fcf <= 30:
-            calidad_cash_flow.append("EV/FCF exigente, evaluar sostenibilidad del FCF.")
+            calidad_cash_flow.append("EV/FCF exigente (15–30), evaluar sostenibilidad del FCF.")
         else:
-            calidad_cash_flow.append("EV/FCF muy exigente, riesgo de sobrevaloración.")
+            calidad_cash_flow.append("EV/FCF muy exigente (>30), riesgo de sobrevaloración.")
+
     if roe is not None:
         if roe < 0.10:
-            rentabilidad.append("ROE bajo, rentabilidad sobre capital limitada.")
+            rentabilidad.append("ROE bajo (<10%), rentabilidad limitada.")
         elif roe <= 0.15:
-            rentabilidad.append("ROE correcto, rentabilidad adecuada.")
+            rentabilidad.append("ROE correcto (10–15%), rentabilidad adecuada.")
         else:
-            rentabilidad.append("ROE elevado, rentabilidad sólida.")
+            rentabilidad.append("ROE elevado (>15%), rentabilidad sólida.")
+
     if margen_ebitda is not None:
         if margen_ebitda < 0.15:
-            rentabilidad.append("Margen EBITDA bajo, presión en la rentabilidad operativa.")
+            rentabilidad.append("Margen EBITDA bajo (<15%), presión operativa.")
         elif margen_ebitda <= 0.25:
-            rentabilidad.append("Margen EBITDA normal, eficiencia operativa razonable.")
+            rentabilidad.append("Margen EBITDA normal (15–25%), eficiencia razonable.")
         else:
-            rentabilidad.append("Margen EBITDA alto, elevada eficiencia operativa.")
+            rentabilidad.append("Margen EBITDA alto (>25%), elevada eficiencia.")
+
     if fcf <= 0:
         calidad_cash_flow.append("Advertencia: FCF ≤ 0, generación de caja débil.")
     if per is not None and per > 30:
         valoracion.append("Advertencia: PER > 30, posible sobrevaloración.")
-    if ebitda != 0:
-        apalancamiento = deuda_neta / ebitda
-        if apalancamiento > 3:
-            solvencia.append("Apalancamiento elevado (Deuda neta/EBITDA > 3).")
     if ev_ebitda is not None and ev_ebitda > 25:
         valoracion.append("Advertencia: EV/EBITDA > 25, valoración exigente.")
 
-    # Las conclusiones anteriores ya incorporan los umbrales por perfil.
+    apalancamiento = None
+    if ebitda != 0:
+        apalancamiento = deuda_neta / ebitda
+        if apalancamiento > 3:
+            solvencia.append("Advertencia: Deuda neta/EBITDA > 3, apalancamiento elevado.")
 
     print("\nInforme resumido:")
-    resumen_partes = []
+    resumen = []
     if calidad_cash_flow:
-        resumen_partes.append("cash flow: " + "; ".join(calidad_cash_flow))
+        resumen.append("cash flow: " + "; ".join(calidad_cash_flow))
     if solvencia:
-        resumen_partes.append("riesgo financiero: " + "; ".join(solvencia))
+        resumen.append("riesgo financiero: " + "; ".join(solvencia))
     if valoracion:
-        resumen_partes.append("exigencia de valoración: " + "; ".join(valoracion))
+        resumen.append("exigencia de valoración: " + "; ".join(valoracion))
     if rentabilidad:
-        resumen_partes.append("rentabilidad: " + "; ".join(rentabilidad))
-    if resumen_partes:
-        print("La empresa presenta " + ". ".join(resumen_partes) + ", lo que implica un perfil integral.")
+        resumen.append("rentabilidad: " + "; ".join(rentabilidad))
+    if resumen:
+        print("La empresa presenta " + ". ".join(resumen) + ", lo que implica un perfil integral.")
     else:
         print("No hay suficiente información para elaborar un informe.")
 
-    veredicto = "neutral"
     valoracion_exigente = (
-        (per is not None and per > per_razonable)
-        or (ev_ebitda is not None and ev_ebitda > ev_ebitda_razonable)
+        (per is not None and per > per_raz) or (ev_ebitda is not None and ev_ebitda > ev_ebitda_raz)
     )
     rentabilidad_sana = roe is not None and roe >= 0.10
-    apalancamiento_alto = ebitda != 0 and (deuda_neta / ebitda) > 3
+    apalancamiento_alto = apalancamiento is not None and apalancamiento > 3
+
+    veredicto = "neutral"
     if not valoracion_exigente and rentabilidad_sana and not apalancamiento_alto:
         veredicto = "favorable"
     elif valoracion_exigente or apalancamiento_alto or fcf <= 0:
@@ -176,107 +234,97 @@ def calcular_ratios():
 
     print(f"\nVeredicto preliminar basado en ratios: {veredicto}.")
 
-    return {"precio": precio_accion, "veredicto": veredicto}
+    datos["ratios"] = {
+        "per": per,
+        "psr": psr,
+        "ev_ebitda": ev_ebitda,
+        "ev_fcf": ev_fcf,
+        "roe": roe,
+        "roa": roa,
+        "margen_ebitda": margen_ebitda,
+        "deuda_neta_ebitda": apalancamiento,
+    }
+    return veredicto
 
 
-def calcular_dcf_perpetuidad(precio_mercado, veredicto_preliminar):
-    """Calcula el valor teórico por acción con un modelo DCF perpetuo."""
-    fcf_actual = float(input("FCF actual: "))
-    deuda = float(input("Deuda: "))
-    caja = float(input("Caja disponible: "))
-    numero_acciones = float(input("Nº de acciones: "))
+def calcular_dcf_perpetuidad(datos, veredicto_preliminar):
+    """Modelo de perpetuidad como herramienta de control/comparación rápida."""
+    fcf_actual = datos["fcf"]
+    deuda_neta = datos["deuda"] - datos["caja"]
+    numero_acciones = datos["numero_acciones"]
 
-    print("\nEscenarios de DCF (introducir porcentajes):")
-    g_conservador = float(input("g conservador (%): "))
-    wacc_conservador = float(input("WACC conservador (%): "))
-    g_base = float(input("g base (%): "))
-    wacc_base = float(input("WACC base (%): "))
-    g_optimista = float(input("g optimista (%): "))
-    wacc_optimista = float(input("WACC optimista (%): "))
+    wacc = datos["wacc"]
+    wacc_conservador = wacc + 0.01
+    wacc_base = wacc
+    wacc_optimista = max(wacc - 0.01, 0.0001)
 
-    print("\nResultados del DCF:")
-    deuda_neta = deuda - caja
-
+    print("\nResultados del DCF perpetuo:")
     if fcf_actual <= 0:
         print("Advertencia: FCF ≤ 0, el DCF puede no ser fiable.")
 
-    def calcular_escenario(nombre, g_pct, wacc_pct):
+    def calcular_escenario(nombre, g_pct, wacc_esc):
         g = g_pct / 100
-        wacc = wacc_pct / 100
-        if wacc <= 0:
+        if wacc_esc <= 0:
             print(f"{nombre}: No se puede calcular Valor empresa: WACC <= 0.")
             return None
-        if g >= wacc:
+        if g >= wacc_esc:
             print(f"{nombre}: Error crítico, g ≥ WACC. Revisa los supuestos.")
             return None
-        valor_empresa = fcf_actual * (1 + g) / (wacc - g)
+
+        valor_empresa = fcf_actual * (1 + g) / (wacc_esc - g)
         valor_equity = valor_empresa - deuda_neta
         if numero_acciones == 0:
             print(f"{nombre}: No se puede calcular Precio teórico por acción: divisor 0.")
             return None
+
         precio_teorico = valor_equity / numero_acciones
+        print(f"{nombre} - WACC: {wacc_esc * 100:.2f}%")
         print(f"{nombre} - Valor empresa: {valor_empresa:.2f}")
         print(f"{nombre} - Valor equity: {valor_equity:.2f}")
         print(f"{nombre} - Precio teórico por acción: {precio_teorico:.2f}")
         return precio_teorico
 
-    calcular_escenario("Conservador", g_conservador, wacc_conservador)
-    precio_base = calcular_escenario("Base", g_base, wacc_base)
-    calcular_escenario("Optimista", g_optimista, wacc_optimista)
+    calcular_escenario("Conservador", datos["g_conservador_pct"], wacc_conservador)
+    precio_base = calcular_escenario("Base", datos["g_base_pct"], wacc_base)
+    calcular_escenario("Optimista", datos["g_optimista_pct"], wacc_optimista)
 
+    precio_mercado = datos["precio_accion"]
     if precio_base is not None and precio_mercado > 0:
         diferencia_pct = (precio_mercado - precio_base) / precio_base
         print("\nClasificación según precio de mercado (DCF perpetuo base):")
         if diferencia_pct < -0.20:
-            print(
-                "Infravalorada: el precio de mercado está >20% por debajo del DCF base, "
-                "lo que sugiere margen de seguridad si el crecimiento y el cash flow se sostienen."
-            )
+            print("Infravalorada: precio >20% por debajo del DCF base.")
         elif diferencia_pct <= 0.20:
-            print(
-                "Precio razonable: el mercado está dentro de ±20% del DCF base, "
-                "lo que indica valoración equilibrada frente a riesgo y crecimiento."
-            )
+            print("Precio razonable: mercado dentro de ±20% del DCF base.")
         else:
-            print(
-                "Sobrevalorada: el precio de mercado está >20% por encima del DCF base, "
-                "lo que exige crecimiento elevado y un cash flow robusto."
-            )
+            print("Sobrevalorada: precio >20% por encima del DCF base.")
+
         print("\nValidación del veredicto preliminar:")
         if diferencia_pct < -0.20 and veredicto_preliminar == "cautela":
-            print(
-                "Alerta: aunque los ratios sugieren cautela, el DCF base indica valor superior "
-                "al precio actual, lo que podría justificar parte del riesgo asumido."
-            )
+            print("Alerta: múltiplos exigentes pero DCF base superior al precio actual.")
         elif diferencia_pct > 0.20 and veredicto_preliminar == "favorable":
-            print(
-                "Alerta: aunque los ratios sugieren un perfil favorable, el DCF base queda por "
-                "debajo del precio actual, lo que contradice el veredicto preliminar."
-            )
+            print("Alerta: ratios favorables, pero DCF base queda por debajo del precio actual.")
         else:
             print("El DCF base es coherente con el veredicto preliminar.")
 
     return precio_base
 
-def calcular_dcf_proyeccion(precio_mercado):
-    """Calcula un DCF con proyección explícita a 5 años y valor terminal."""
-    fcf_actual = float(input("FCF actual (FCF0): "))
-    crecimientos = []
-    for i in range(1, 6):
-        crecimientos.append(float(input(f"g{i} (%): ")))
-    wacc_pct = float(input("WACC (%): "))
-    g_terminal_pct = float(input("g terminal (%): "))
-    deuda = float(input("Deuda total: "))
-    caja = float(input("Caja disponible: "))
-    numero_acciones = float(input("Nº de acciones: "))
+
+def calcular_dcf_proyeccion(datos):
+    """DCF con proyección explícita de 5 años + valor terminal."""
+    fcf_actual = datos["fcf"]
+    wacc = datos["wacc"]
+    g_terminal_pct = datos["g_terminal_pct"]
+    g_terminal = g_terminal_pct / 100
 
     if fcf_actual <= 0:
         print("Advertencia: FCF0 ≤ 0, la proyección puede no ser fiable.")
-    if any(g > 30 for g in crecimientos):
-        print("Advertencia: algún crecimiento gᵗ es extremadamente alto (>30%).")
 
-    wacc = wacc_pct / 100
-    g_terminal = g_terminal_pct / 100
+    crecimientos = construir_crecimientos_decrecientes(datos["g_inicial_pct"], g_terminal_pct)
+    if any(g > 40 for g in crecimientos):
+        print("Advertencia: algún crecimiento g_t es extremadamente alto (>40%).")
+    elif any(g > 30 for g in crecimientos):
+        print("Advertencia: algún crecimiento g_t es muy alto (>30%).")
 
     if g_terminal >= wacc:
         print("Error crítico: g terminal ≥ WACC. Revisa los supuestos.")
@@ -285,79 +333,156 @@ def calcular_dcf_proyeccion(precio_mercado):
         print("Error crítico: WACC <= 0. Revisa los supuestos.")
         return None
 
-    print("\nProyección de FCF y valores presentes:")
-    fcf = fcf_actual
-    vp_fcfs = []
+    print("\nTabla de crecimientos automáticos (lineal decreciente):")
     for i, g in enumerate(crecimientos, start=1):
-        fcf *= (1 + g / 100)
-        vp = fcf / ((1 + wacc) ** i)
+        print(f"g{i}: {g:.2f}%")
+
+    print("\nProyección de FCF y valores presentes:")
+    fcf_t = fcf_actual
+    vp_fcfs = []
+    fcfs = []
+    for i, g_pct in enumerate(crecimientos, start=1):
+        fcf_t = fcf_t * (1 + g_pct / 100)
+        vp = fcf_t / ((1 + wacc) ** i)
+        fcfs.append(fcf_t)
         vp_fcfs.append(vp)
-        print(f"Año {i} - FCF: {fcf:.2f} | VP: {vp:.2f}")
+        print(f"Año {i} - FCF: {fcf_t:.2f} | VP: {vp:.2f}")
 
-    valor_terminal = (fcf * (1 + g_terminal)) / (wacc - g_terminal)
+    valor_terminal = (fcfs[-1] * (1 + g_terminal)) / (wacc - g_terminal)
     vp_valor_terminal = valor_terminal / ((1 + wacc) ** 5)
-    ev = sum(vp_fcfs) + vp_valor_terminal
+    valor_empresa = sum(vp_fcfs) + vp_valor_terminal
 
-    deuda_neta = deuda - caja
-    equity = ev - deuda_neta
-    if numero_acciones == 0:
+    deuda_neta = datos["deuda"] - datos["caja"]
+    valor_equity = valor_empresa - deuda_neta
+    if datos["numero_acciones"] == 0:
         print("No se puede calcular Precio teórico por acción: divisor 0.")
         return None
-    precio_teorico = equity / numero_acciones
 
-    peso_terminal = vp_valor_terminal / ev if ev != 0 else 0
+    precio_teorico = valor_equity / datos["numero_acciones"]
+    peso_terminal = vp_valor_terminal / valor_empresa if valor_empresa != 0 else 0
     if peso_terminal > 0.70:
         print("Advertencia: el valor terminal representa >70% del EV total.")
 
     print(f"Valor terminal: {valor_terminal:.2f}")
     print(f"VP del valor terminal: {vp_valor_terminal:.2f}")
     print(f"Peso del valor terminal en EV: {peso_terminal:.2%}")
-    print(f"Valor empresa total (EV): {ev:.2f}")
-    print(f"Valor del equity: {equity:.2f}")
+    print(f"Valor empresa total (EV): {valor_empresa:.2f}")
+    print(f"Valor del equity: {valor_equity:.2f}")
     print(f"Precio teórico por acción: {precio_teorico:.2f}")
 
+    precio_mercado = datos["precio_accion"]
     if precio_mercado > 0:
         diferencia_pct = (precio_mercado - precio_teorico) / precio_teorico
         print("\nClasificación según precio de mercado (DCF 5 años):")
         if diferencia_pct < -0.20:
-            print(
-                "Infravalorada: el precio de mercado está >20% por debajo del DCF a 5 años, "
-                "lo que indica potencial si el crecimiento se materializa."
-            )
+            print("Infravalorada: precio >20% por debajo del DCF a 5 años.")
         elif diferencia_pct <= 0.20:
-            print(
-                "Precio razonable: el mercado está dentro de ±20% del DCF a 5 años, "
-                "lo que sugiere valoración coherente con la fase de negocio."
-            )
+            print("Precio razonable: mercado dentro de ±20% del DCF a 5 años.")
         else:
-            print(
-                "Sobrevalorada: el precio de mercado está >20% por encima del DCF a 5 años, "
-                "lo que implica expectativas de crecimiento exigentes."
-            )
+            print("Sobrevalorada: precio >20% por encima del DCF a 5 años.")
 
     return precio_teorico
 
 
-if __name__ == "__main__":
-    resultado = calcular_ratios()
-    precio_perpetuo = calcular_dcf_perpetuidad(resultado["precio"], resultado["veredicto"])
-    print(
-        "\nDCF por proyección explícita (5 años + valor terminal): "
-        "útil para empresas growth o en transición."
+def calcular_investment_score(datos, precio_dcf_base):
+    """Calcula score 0-100 con desglose por bloques."""
+    r = datos["ratios"]
+
+    # Valoración (40)
+    score_val = 0
+    if r["per"] is not None:
+        score_val += 14 if r["per"] < 15 else 10 if r["per"] <= 25 else 4
+    if r["ev_ebitda"] is not None:
+        score_val += 14 if r["ev_ebitda"] < 8 else 10 if r["ev_ebitda"] <= 15 else 4
+    if r["ev_fcf"] is not None:
+        score_val += 12 if r["ev_fcf"] < 15 else 8 if r["ev_fcf"] <= 30 else 2
+
+    # Rentabilidad (25)
+    score_ren = 0
+    if r["roe"] is not None:
+        score_ren += 13 if r["roe"] > 0.15 else 9 if r["roe"] >= 0.10 else 4
+    if r["margen_ebitda"] is not None:
+        score_ren += 12 if r["margen_ebitda"] > 0.25 else 8 if r["margen_ebitda"] >= 0.15 else 3
+
+    # Riesgo financiero (20)
+    score_riesgo = 0
+    de = r["deuda_neta_ebitda"]
+    if de is not None:
+        score_riesgo += 12 if de <= 2 else 8 if de <= 3 else 3
+    score_riesgo += 8 if datos["fcf"] > 0 else 2
+
+    # DCF vs mercado (15)
+    score_dcf = 0
+    if precio_dcf_base is not None and precio_dcf_base != 0:
+        diff = (datos["precio_accion"] - precio_dcf_base) / precio_dcf_base
+        if diff < -0.20:
+            score_dcf = 15
+        elif diff <= 0.20:
+            score_dcf = 10
+        else:
+            score_dcf = 4
+
+    total = max(0, min(100, score_val + score_ren + score_riesgo + score_dcf))
+
+    if total >= 75:
+        clasificacion = "Compra"
+    elif total >= 60:
+        clasificacion = "Mantener"
+    elif total >= 45:
+        clasificacion = "Neutral"
+    else:
+        clasificacion = "Evitar"
+
+    print("\nInvestment Score (0-100):")
+    print(f"Valoración (40): {score_val:.0f}")
+    print(f"Rentabilidad (25): {score_ren:.0f}")
+    print(f"Riesgo financiero (20): {score_riesgo:.0f}")
+    print(f"DCF vs mercado (15): {score_dcf:.0f}")
+    print(f"Score total: {total:.0f}")
+    print(f"Clasificación final: {clasificacion}")
+
+
+def main():
+    """Ejecución principal del análisis."""
+    datos = recopilar_datos()
+    deuda_neta = datos["deuda"] - datos["caja"]
+    wacc, apalancamiento, justificacion_wacc, tipo_validado = calcular_wacc_automatico(
+        datos["tipo_empresa"], deuda_neta, datos["ebitda"]
     )
-    precio_proyeccion = calcular_dcf_proyeccion(resultado["precio"])
+    datos["tipo_empresa"] = tipo_validado
+    datos["wacc"] = wacc
+
+    print("\nWACC automático estimado:")
+    print(f"WACC final: {wacc * 100:.2f}%")
+    for j in justificacion_wacc:
+        print(f"- {j}")
+    if apalancamiento is not None:
+        print(f"- Deuda neta/EBITDA calculada: {apalancamiento:.2f}")
+
+    veredicto = calcular_ratios(datos)
+    precio_perpetuo = calcular_dcf_perpetuidad(datos, veredicto)
+
+    print("\nDCF por proyección explícita (5 años + valor terminal):")
+    print("Modelo recomendado para empresas growth o en transición.")
+    precio_proyeccion = calcular_dcf_proyeccion(datos)
 
     if precio_perpetuo is not None and precio_proyeccion is not None:
         print("\nComparación entre modelos DCF:")
         if precio_proyeccion < precio_perpetuo:
             print(
-                "El DCF por proyección arroja un valor inferior al perpetuo debido a "
-                "una desaceleración prevista del crecimiento y/o mayor riesgo en el corto plazo."
+                "El DCF por proyección arroja un valor inferior al perpetuo debido a la "
+                "desaceleración del crecimiento y/o mayor riesgo en fase de transición."
             )
         elif precio_proyeccion > precio_perpetuo:
             print(
-                "El DCF por proyección arroja un valor superior al perpetuo, lo que refleja "
-                "una fase de crecimiento más intensa antes de la madurez."
+                "El DCF por proyección arroja un valor superior al perpetuo por una fase "
+                "de crecimiento inicial más intensa antes de madurez."
             )
         else:
-            print("Ambos DCF son coherentes, sugiriendo supuestos de crecimiento similares.")
+            print("Ambos DCF son coherentes, con supuestos de crecimiento similares.")
+
+    calcular_investment_score(datos, precio_perpetuo)
+
+
+if __name__ == "__main__":
+    main()
